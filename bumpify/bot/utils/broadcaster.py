@@ -1,16 +1,3 @@
-"""
-broadcaster.py — concurrent ad broadcaster with 10k-account support.
-
-Key design decisions:
-- Global semaphore (MAX_CONCURRENT_ACCOUNTS, default 30) limits simultaneous
-  Pyrogram sessions so we never flood-connect to Telegram.
-- All accounts start concurrently and are throttled by the semaphore; as one
-  finishes the next begins immediately — no sequential chunking.
-- Per-account group semaphore (3) limits concurrent sends within one account.
-- FloodWait is caught, capped at 60 s, and retried once.
-- asyncio.CancelledError propagates cleanly so stop_broadcast() works instantly.
-"""
-
 import asyncio
 import io
 import logging
@@ -34,52 +21,38 @@ from bot.config import BOT_TOKEN, LOGGER_BOT_TOKEN
 
 logger = logging.getLogger(__name__)
 
-# ── Concurrency knobs ──────────────────────────────────────────────────────────
-# How many Pyrogram sessions may be ACTIVE at the same time across all users.
-# Raise this on powerful servers; keep ≤50 to stay within Telegram API limits.
 MAX_CONCURRENT_ACCOUNTS: int = int(os.getenv("MAX_CONCURRENT_ACCOUNTS", "30"))
-
-# Per-account: how many groups may be targeted simultaneously.
 GROUPS_PER_ACCOUNT_CONCURRENCY: int = int(os.getenv("GROUPS_PER_ACCOUNT_CONCURRENCY", "3"))
-
-# Delay (seconds) between successful sends within one account to avoid flood bans.
 SEND_DELAY: float = float(os.getenv("SEND_DELAY", "1.5"))
 
-# Semaphores — created lazily so they live on the running event loop.
-_global_client_sem: asyncio.Semaphore | None = None
-_dl_semaphore: asyncio.Semaphore | None = None
-
-# In-flight broadcast tasks: {owner_id: Task}
+global_client_sem: asyncio.Semaphore | None = None
+dl_semaphore: asyncio.Semaphore | None = None
 active_tasks: dict[int, asyncio.Task] = {}
-
-# Cached logger bot instance
-_logger_bot: telegram.Bot | None = None
+logger_bot: telegram.Bot | None = None
 
 
-def _get_global_client_sem() -> asyncio.Semaphore:
-    global _global_client_sem
-    if _global_client_sem is None:
-        _global_client_sem = asyncio.Semaphore(MAX_CONCURRENT_ACCOUNTS)
-    return _global_client_sem
+def get_global_client_sem() -> asyncio.Semaphore:
+    global global_client_sem
+    if global_client_sem is None:
+        global_client_sem = asyncio.Semaphore(MAX_CONCURRENT_ACCOUNTS)
+    return global_client_sem
 
 
-def _get_dl_sem() -> asyncio.Semaphore:
-    global _dl_semaphore
-    if _dl_semaphore is None:
-        _dl_semaphore = asyncio.Semaphore(8)
-    return _dl_semaphore
+def get_dl_sem() -> asyncio.Semaphore:
+    global dl_semaphore
+    if dl_semaphore is None:
+        dl_semaphore = asyncio.Semaphore(8)
+    return dl_semaphore
 
 
 def get_logger_bot() -> telegram.Bot | None:
-    global _logger_bot
+    global logger_bot
     if not LOGGER_BOT_TOKEN:
         return None
-    if _logger_bot is None:
-        _logger_bot = telegram.Bot(token=LOGGER_BOT_TOKEN)
-    return _logger_bot
+    if logger_bot is None:
+        logger_bot = telegram.Bot(token=LOGGER_BOT_TOKEN)
+    return logger_bot
 
-
-# ── Logging helper ─────────────────────────────────────────────────────────────
 
 async def send_logs(owner_id: int, text: str) -> None:
     bot = get_logger_bot()
@@ -91,10 +64,8 @@ async def send_logs(owner_id: int, text: str) -> None:
         logger.warning("send_logs failed: %s", e)
 
 
-# ── File download ──────────────────────────────────────────────────────────────
-
 async def download_file(file_id: str) -> bytes | None:
-    async with _get_dl_sem():
+    async with get_dl_sem():
         try:
             async with httpx.AsyncClient(timeout=60) as client:
                 r = await client.get(
@@ -108,8 +79,6 @@ async def download_file(file_id: str) -> bytes | None:
             logger.warning("download_file failed [%s]: %s", file_id, e)
             return None
 
-
-# ── Ad sender (Pyrogram) ───────────────────────────────────────────────────────
 
 async def send_ad_via_pyrogram(client: Client, chat_id, ad_data: dict) -> None:
     msg_type = ad_data.get("type")
@@ -178,8 +147,6 @@ async def send_ad_via_pyrogram(client: Client, chat_id, ad_data: dict) -> None:
         raise ValueError(f"Unsupported ad message type: {msg_type!r}")
 
 
-# ── Helpers ────────────────────────────────────────────────────────────────────
-
 def group_link(group) -> str:
     username = getattr(group, "username", None)
     gid = str(group.id)
@@ -190,13 +157,7 @@ def group_link(group) -> str:
     return ""
 
 
-# ── Single-account broadcaster ─────────────────────────────────────────────────
-
 async def process_account(owner_id: int, acc_num: int, acc: dict) -> dict:
-    """
-    Runs inside the global client semaphore — at most MAX_CONCURRENT_ACCOUNTS
-    of these execute concurrently across ALL users.
-    """
     report: dict = {
         "num": acc_num,
         "phone": acc["phone"],
@@ -207,11 +168,10 @@ async def process_account(owner_id: int, acc_num: int, acc: dict) -> dict:
         "error": None,
     }
 
-    async with _get_global_client_sem():
+    async with get_global_client_sem():
         try:
             client = await get_pyrogram_client(acc["session"])
             async with client:
-                # Fetch latest Saved Message ID
                 msgs = [m async for m in client.get_chat_history("me", limit=1)]
                 if not msgs or not msgs[0].id:
                     report["error"] = "No message in Saved Messages"
@@ -225,7 +185,6 @@ async def process_account(owner_id: int, acc_num: int, acc: dict) -> dict:
 
                 saved_msg_id = msgs[0].id
 
-                # Collect all group dialogs
                 groups = []
                 async for dialog in client.get_dialogs(limit=0):
                     if dialog.chat.type in (ChatType.GROUP, ChatType.SUPERGROUP):
@@ -233,7 +192,6 @@ async def process_account(owner_id: int, acc_num: int, acc: dict) -> dict:
 
                 logger.info("Account #%d (%s): %d groups", acc_num, acc["phone"], len(groups))
 
-                # Per-account concurrency semaphore
                 group_sem = asyncio.Semaphore(GROUPS_PER_ACCOUNT_CONCURRENCY)
 
                 async def send_to_group(group):
@@ -243,15 +201,14 @@ async def process_account(owner_id: int, acc_num: int, acc: dict) -> dict:
                     glink = group_link(group)
 
                     async with group_sem:
-                        # Bail early if broadcast was stopped
                         if not await db.is_ads_running(owner_id):
                             return
 
-                        async def _do_send():
+                        async def do_send():
                             await client.forward_messages(gid, "me", saved_msg_id)
 
                         try:
-                            await _do_send()
+                            await do_send()
                             await db.log_broadcast(owner_id, acc["phone"], acc_num, gid, gtitle, gusername, True)
                             report["success"] += 1
                             report["groups"].append({
@@ -265,7 +222,7 @@ async def process_account(owner_id: int, acc_num: int, acc: dict) -> dict:
                             logger.info("FloodWait %ds — acc #%d group '%s'", wait, acc_num, gtitle)
                             await asyncio.sleep(wait)
                             try:
-                                await _do_send()
+                                await do_send()
                                 await db.log_broadcast(owner_id, acc["phone"], acc_num, gid, gtitle, gusername, True)
                                 report["success"] += 1
                                 report["groups"].append({
@@ -290,7 +247,7 @@ async def process_account(owner_id: int, acc_num: int, acc: dict) -> dict:
                             })
 
                         except asyncio.CancelledError:
-                            raise  # propagate cancellation
+                            raise
 
                         except Exception as ex:
                             err = str(ex)[:120]
@@ -301,8 +258,6 @@ async def process_account(owner_id: int, acc_num: int, acc: dict) -> dict:
                                 "link": glink, "id": gid, "ok": False, "err": str(ex)[:60],
                             })
 
-                # Fan out to all groups; return_exceptions so one bad group
-                # never cancels the rest.
                 await asyncio.gather(
                     *[send_to_group(g) for g in groups],
                     return_exceptions=True,
@@ -333,8 +288,6 @@ async def process_account(owner_id: int, acc_num: int, acc: dict) -> dict:
 
     return report
 
-
-# ── Report formatter ───────────────────────────────────────────────────────────
 
 def build_report_text(report: dict, time_str: str) -> str:
     if report.get("error") and not report["groups"]:
@@ -372,8 +325,6 @@ def build_report_text(report: dict, time_str: str) -> str:
     return msg
 
 
-# ── Per-user broadcast loop ────────────────────────────────────────────────────
-
 async def broadcast_for_user(owner_id: int) -> None:
     accounts = await db.get_accounts(owner_id)
     if not accounts:
@@ -383,13 +334,9 @@ async def broadcast_for_user(owner_id: int) -> None:
     mins, secs = divmod(interval, 60)
     time_str = f"{mins}m {secs}s" if mins else f"{secs}s"
 
-    logger.info(
-        "broadcast_for_user owner=%d accounts=%d max_concurrent=%d",
-        owner_id, len(accounts), MAX_CONCURRENT_ACCOUNTS,
-    )
+    logger.info("broadcast_for_user owner=%d accounts=%d max_concurrent=%d",
+                owner_id, len(accounts), MAX_CONCURRENT_ACCOUNTS)
 
-    # Launch ALL accounts at once — the global semaphore throttles actual connections.
-    # This is far faster than sequential chunking for large account pools.
     tasks = [
         asyncio.ensure_future(process_account(owner_id, i + 1, acc))
         for i, acc in enumerate(accounts)
@@ -406,8 +353,6 @@ async def broadcast_for_user(owner_id: int) -> None:
         if text:
             await send_logs(owner_id, text)
 
-
-# ── Public API ─────────────────────────────────────────────────────────────────
 
 async def start_broadcast(owner_id: int) -> None:
     await db.set_ads_running(owner_id, True)
