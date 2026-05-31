@@ -1,10 +1,14 @@
+import asyncio
+import logging
+import os
 from aiohttp import web
 from telegram import Update
 from telegram.ext import Application
 from bot.config import WEB_PORT, BOT_TOKEN, LOGGER_BOT_TOKEN
 from bot.utils import db
 from bot.utils.session_manager import start_login, complete_login
-import os
+
+log = logging.getLogger(__name__)
 
 routes = web.RouteTableDef()
 
@@ -173,9 +177,6 @@ def build_web_app(main_bot_app: Application, logger_bot_app: Application | None 
     app.add_routes(routes)
 
     async def main_webhook(request: web.Request):
-        # CRITICAL: return 'ok' to Telegram IMMEDIATELY, then process in background.
-        # Awaiting process_update() here causes Telegram to wait 60s and retry,
-        # creating duplicate updates and cascading failures at scale.
         token = request.match_info["token"]
         if token != BOT_TOKEN:
             return web.Response(status=403, text="forbidden")
@@ -184,8 +185,7 @@ def build_web_app(main_bot_app: Application, logger_bot_app: Application | None 
             update = Update.de_json(data, main_bot_app.bot)
             asyncio.ensure_future(main_bot_app.process_update(update))
         except Exception as e:
-            import logging
-            logging.getLogger(__name__).warning("main_webhook dispatch error: %s", e)
+            log.warning("main_webhook dispatch error: %s", e)
         return web.Response(text="ok")
 
     async def logger_webhook(request: web.Request):
@@ -199,8 +199,7 @@ def build_web_app(main_bot_app: Application, logger_bot_app: Application | None 
             update = Update.de_json(data, logger_bot_app.bot)
             asyncio.ensure_future(logger_bot_app.process_update(update))
         except Exception as e:
-            import logging
-            logging.getLogger(__name__).warning("logger_webhook dispatch error: %s", e)
+            log.warning("logger_webhook dispatch error: %s", e)
         return web.Response(text="ok")
 
     app.router.add_post("/webhook/{token}", main_webhook)
@@ -215,6 +214,5 @@ async def run_web(main_bot_app: Application, logger_bot_app: Application | None 
     await runner.setup()
     site = web.TCPSite(runner, "0.0.0.0", WEB_PORT, reuse_address=True)
     await site.start()
-    import logging
-    logging.getLogger(__name__).info("Web server started on port %d", WEB_PORT)
+    log.info("Web server started on port %d", WEB_PORT)
     return runner
