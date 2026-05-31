@@ -1,6 +1,6 @@
 <div align="center">
 
-# BUMPIFY ADS BOT
+# AdsBot
 
 **Professional Telegram group advertising automation system**
 
