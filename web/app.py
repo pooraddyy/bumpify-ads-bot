@@ -1,5 +1,7 @@
 from aiohttp import web
-from bot.config import WEB_PORT
+from telegram import Update
+from telegram.ext import Application
+from bot.config import WEB_PORT, BOT_TOKEN, LOGGER_BOT_TOKEN
 from bot.utils import db
 from bot.utils.session_manager import start_login, complete_login
 import os
@@ -166,14 +168,38 @@ async def get_stats(request: web.Request):
         return web.json_response({"ok": False, "error": str(e)})
 
 
-def build_web_app() -> web.Application:
+def build_web_app(main_bot_app: Application, logger_bot_app: Application | None = None) -> web.Application:
     app = web.Application()
     app.add_routes(routes)
+
+    async def main_webhook(request: web.Request):
+        token = request.match_info["token"]
+        if token != BOT_TOKEN:
+            raise web.HTTPForbidden()
+        data = await request.json()
+        update = Update.de_json(data, main_bot_app.bot)
+        await main_bot_app.process_update(update)
+        return web.Response(text="ok")
+
+    async def logger_webhook(request: web.Request):
+        if not logger_bot_app:
+            raise web.HTTPNotFound()
+        token = request.match_info["token"]
+        if token != LOGGER_BOT_TOKEN:
+            raise web.HTTPForbidden()
+        data = await request.json()
+        update = Update.de_json(data, logger_bot_app.bot)
+        await logger_bot_app.process_update(update)
+        return web.Response(text="ok")
+
+    app.router.add_post("/webhook/{token}", main_webhook)
+    app.router.add_post("/webhook/logger/{token}", logger_webhook)
+
     return app
 
 
-async def run_web():
-    app = build_web_app()
+async def run_web(main_bot_app: Application, logger_bot_app: Application | None = None):
+    app = build_web_app(main_bot_app, logger_bot_app)
     runner = web.AppRunner(app)
     await runner.setup()
     site = web.TCPSite(runner, "0.0.0.0", WEB_PORT)
