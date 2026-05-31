@@ -58,10 +58,32 @@
     <div class="form-card">
       <div class="form-title">Add Telegram Account</div>
       <div id="step-phone" class="step active">
+
         <div class="field-group">
           <label class="field-label">Country</label>
-          <select id="country-select" class="input-field" onchange="updatePrefix()"></select>
+          <div class="country-picker" id="country-picker">
+            <div class="country-selected" onclick="toggleCountryDropdown()">
+              <span id="country-name-display">India</span>
+              <span id="country-dial-display" class="country-dial-tag">+91</span>
+              <svg class="chevron-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+                <polyline points="6 9 12 15 18 9"/>
+              </svg>
+            </div>
+            <div class="country-dropdown" id="country-dropdown" style="display:none;">
+              <div class="country-search-wrap">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+                </svg>
+                <input type="text" class="input-field country-search" id="country-search-input"
+                  placeholder="Search country or dial code…"
+                  oninput="filterCountries(this.value)"
+                  autocomplete="off">
+              </div>
+              <div class="country-list" id="country-list"></div>
+            </div>
+          </div>
         </div>
+
         <div class="field-group">
           <label class="field-label">Phone Number</label>
           <div class="phone-row">
