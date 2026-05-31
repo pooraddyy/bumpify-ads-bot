@@ -21,16 +21,12 @@ async def connect():
         socketTimeoutMS=30_000,
     )
     mongo_db = mongo_client[DATABASE_NAME]
-    # users
     await mongo_db.users.create_index("user_id", unique=True)
-    # accounts — cover active-only fetches (keep non-unique to avoid migration conflict)
     await mongo_db.accounts.create_index([("owner_id", 1), ("phone", 1)])
     await mongo_db.accounts.create_index([("owner_id", 1), ("active", 1)])
-    # broadcast_logs — cover stats/recent queries with timestamp
     await mongo_db.broadcast_logs.create_index([("owner_id", 1), ("created_at", -1)])
     await mongo_db.broadcast_logs.create_index([("owner_id", 1), ("success", 1)])
     await mongo_db.broadcast_logs.create_index([("owner_id", 1), ("account_phone", 1)])
-    # misc
     await mongo_db.logger_started.create_index("user_id", unique=True)
     await mongo_db.pending_sessions.create_index(
         [("owner_id", 1), ("phone", 1)], unique=True
