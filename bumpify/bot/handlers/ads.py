@@ -16,10 +16,9 @@ async def save_ad_to_saved_messages(owner_id: int, ad_data: dict):
     if not accounts:
         return
 
-    # Limit concurrent Pyrogram connections when saving ad across many accounts
     sem = asyncio.Semaphore(10)
 
-    async def _save_one(acc: dict):
+    async def save_one(acc: dict):
         async with sem:
             try:
                 client = await get_pyrogram_client(acc["session"])
@@ -28,7 +27,7 @@ async def save_ad_to_saved_messages(owner_id: int, ad_data: dict):
             except Exception as e:
                 logger.warning("save_to_saved_messages failed [%s]: %s", acc["phone"], e)
 
-    await asyncio.gather(*[_save_one(acc) for acc in accounts], return_exceptions=True)
+    await asyncio.gather(*[save_one(acc) for acc in accounts], return_exceptions=True)
 
 
 async def set_ad_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
