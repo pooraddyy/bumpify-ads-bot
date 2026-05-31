@@ -1,7 +1,7 @@
 import asyncio
 import logging
 from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQueryHandler, filters
-from bot.config import BOT_TOKEN, LOGGER_BOT_TOKEN, PRIVATE_MODE, OWNER_IDS
+from bot.config import BOT_TOKEN, LOGGER_BOT_TOKEN, PRIVATE_MODE, OWNER_IDS, WEB_APP_URL
 from bot.handlers.start import start_handler
 from bot.handlers.dashboard import dashboard_handler
 from bot.handlers.callbacks import callback_handler
@@ -84,6 +84,7 @@ def build_main_app() -> Application:
     app = (
         Application.builder()
         .token(BOT_TOKEN)
+        .updater(None)
         .concurrent_updates(True)
         .build()
     )
@@ -109,26 +110,15 @@ def build_main_app() -> Application:
     return app
 
 
-async def run_bot(app: Application):
+async def setup_webhook(app: Application, webhook_url: str):
     await app.initialize()
     await app.start()
-    await app.bot.delete_webhook(drop_pending_updates=True)
-    await app.updater.start_polling(
+    await app.bot.set_webhook(
+        url=webhook_url,
         drop_pending_updates=True,
         allowed_updates=["message", "callback_query", "edited_message"],
     )
-    logging.info("Main bot started")
-
-
-async def run_logger(app: Application):
-    await app.initialize()
-    await app.start()
-    await app.bot.delete_webhook(drop_pending_updates=True)
-    await app.updater.start_polling(
-        drop_pending_updates=True,
-        allowed_updates=["message", "callback_query"],
-    )
-    logging.info("Logger bot started")
+    logging.info("Webhook set: %s", webhook_url)
 
 
 async def main():
@@ -136,15 +126,24 @@ async def main():
     logging.info("MongoDB connected")
 
     main_app = build_main_app()
-    web_runner = await run_web()
-
-    await run_bot(main_app)
 
     logger_app = None
     if LOGGER_BOT_TOKEN:
         from logger_bot.handlers import build_logger_app
         logger_app = build_logger_app()
-        await run_logger(logger_app)
+
+    web_runner = await run_web(main_app, logger_app)
+
+    base_url = WEB_APP_URL.rstrip("/")
+    if not base_url:
+        logging.warning("WEB_APP_URL is not set — webhook cannot be registered with Telegram.")
+
+    await setup_webhook(main_app, f"{base_url}/webhook/{BOT_TOKEN}")
+    logging.info("Main bot started (webhook mode)")
+
+    if logger_app:
+        await setup_webhook(logger_app, f"{base_url}/webhook/logger/{LOGGER_BOT_TOKEN}")
+        logging.info("Logger bot started (webhook mode)")
 
     logging.info("All services running. Press Ctrl+C to stop.")
 
@@ -153,11 +152,9 @@ async def main():
     except (KeyboardInterrupt, SystemExit):
         pass
     finally:
-        await main_app.updater.stop()
         await main_app.stop()
         await main_app.shutdown()
         if logger_app is not None:
-            await logger_app.updater.stop()
             await logger_app.stop()
             await logger_app.shutdown()
         await web_runner.cleanup()
