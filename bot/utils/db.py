@@ -1,5 +1,6 @@
 from motor.motor_asyncio import AsyncIOMotorClient
 from bot.config import MONGODB_URL, DATABASE_NAME
+import datetime
 
 mongo_client = None
 mongo_db = None
@@ -18,6 +19,12 @@ async def connect():
     await mongo_db.broadcast_logs.create_index("owner_id")
     await mongo_db.broadcast_logs.create_index([("owner_id", 1), ("_id", -1)])
     await mongo_db.logger_started.create_index("user_id", unique=True)
+    await mongo_db.pending_sessions.create_index(
+        [("owner_id", 1), ("phone", 1)], unique=True
+    )
+    await mongo_db.pending_sessions.create_index(
+        "created_at", expireAfterSeconds=300
+    )
 
 
 async def close():
@@ -225,3 +232,28 @@ async def get_recent_broadcast_logs(owner_id: int, limit: int = 30) -> list:
         {"_id": 0, "owner_id": 0},
     ).sort("_id", -1).limit(limit)
     return await cursor.to_list(length=None)
+
+
+async def save_pending_session(owner_id: int, phone: str, phone_code_hash: str):
+    await get_db().pending_sessions.update_one(
+        {"owner_id": owner_id, "phone": phone},
+        {"$set": {
+            "owner_id": owner_id,
+            "phone": phone,
+            "phone_code_hash": phone_code_hash,
+            "created_at": datetime.datetime.utcnow(),
+        }},
+        upsert=True,
+    )
+
+
+async def get_pending_session(owner_id: int, phone: str) -> dict | None:
+    return await get_db().pending_sessions.find_one(
+        {"owner_id": owner_id, "phone": phone}
+    )
+
+
+async def delete_pending_session(owner_id: int, phone: str):
+    await get_db().pending_sessions.delete_one(
+        {"owner_id": owner_id, "phone": phone}
+    )
