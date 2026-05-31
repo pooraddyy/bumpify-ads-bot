@@ -2,6 +2,7 @@ from pyrogram import Client
 from pyrogram.errors import SessionPasswordNeeded, PhoneCodeExpired, PhoneCodeInvalid
 from bot.config import API_ID, API_HASH, ENCRYPTION_KEY, LAST_NAME_SUFFIX, BIO_TEXT
 from bot.utils.encryption import encrypt_session, decrypt_session
+from bot.utils import db
 
 pending_sessions: dict[str, dict] = {}
 
@@ -15,21 +16,39 @@ async def start_login(phone: str, owner_id: int) -> str:
     )
     await client.connect()
     sent = await client.send_code(phone)
-    pending_sessions[f"{owner_id}_{phone}"] = {
+    phone_code_hash = sent.phone_code_hash
+
+    key = f"{owner_id}_{phone}"
+    pending_sessions[key] = {
         "client": client,
-        "phone_code_hash": sent.phone_code_hash,
+        "phone_code_hash": phone_code_hash,
     }
-    return sent.phone_code_hash
+
+    await db.save_pending_session(owner_id, phone, phone_code_hash)
+
+    return phone_code_hash
 
 
 async def complete_login(phone: str, owner_id: int, code: str, password: str | None = None) -> dict:
     key = f"{owner_id}_{phone}"
     pending = pending_sessions.get(key)
-    if not pending:
-        raise ValueError("Session expired. Please try again.")
 
-    client: Client = pending["client"]
-    phone_code_hash = pending["phone_code_hash"]
+    if pending:
+        client: Client = pending["client"]
+        phone_code_hash = pending["phone_code_hash"]
+    else:
+        db_pending = await db.get_pending_session(owner_id, phone)
+        if not db_pending:
+            raise ValueError("Session expired. Please request a new OTP.")
+
+        phone_code_hash = db_pending["phone_code_hash"]
+        client = Client(
+            name=f"tmp_{phone}",
+            api_id=API_ID,
+            api_hash=API_HASH,
+            in_memory=True,
+        )
+        await client.connect()
 
     try:
         try:
@@ -39,7 +58,7 @@ async def complete_login(phone: str, owner_id: int, code: str, password: str | N
                 raise ValueError("2FA_REQUIRED")
             await client.check_password(password)
         except PhoneCodeExpired:
-            raise ValueError("Code expired. Please try again.")
+            raise ValueError("Code expired. Please request a new OTP.")
         except PhoneCodeInvalid:
             raise ValueError("Invalid code. Please try again.")
 
@@ -78,6 +97,7 @@ async def complete_login(phone: str, owner_id: int, code: str, password: str | N
 
     finally:
         pending_sessions.pop(key, None)
+        await db.delete_pending_session(owner_id, phone)
         try:
             await client.disconnect()
         except Exception:
