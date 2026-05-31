@@ -38,7 +38,7 @@ async def build_dashboard_content(user_id: int) -> tuple[str, InlineKeyboardMark
 
     ad_row = [InlineKeyboardButton("Set Ad Message", callback_data="set_ad", api_kwargs={"style": "primary"})]
     if ad_data:
-        ad_row.append(InlineKeyboardButton("Remove Ad", callback_data="remove_ad", api_kwargs={"style": "danger"}))
+        ad_row.append(InlineKeyboardButton("Remove Ad", callback_data="remove_ad", api_kwargs={"style": "primary"}))
 
     keyboard = InlineKeyboardMarkup([
         [add_acc_btn, InlineKeyboardButton("My Accounts", callback_data="my_accounts", api_kwargs={"style": "primary"})],
