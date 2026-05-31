@@ -37,6 +37,6 @@ async def logger_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 def build_logger_app() -> Application:
-    app = Application.builder().token(LOGGER_BOT_TOKEN).build()
+    app = Application.builder().token(LOGGER_BOT_TOKEN).updater(None).build()
     app.add_handler(CommandHandler("start", logger_start))
     return app
