@@ -1,0 +1,9 @@
+services:
+  - type: web
+    name: bumpify-ads-bot
+    runtime: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: python main.py
+    envVars:
+      - key: WEB_PORT
+        value: 10000
