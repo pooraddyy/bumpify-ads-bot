@@ -96,6 +96,26 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             from bot.handlers.leave_groups import leave_groups_menu_handler
             await leave_groups_menu_handler(update, context)
 
+        elif data == "join_groups":
+            from bot.handlers.join_groups import join_groups_menu_handler
+            await join_groups_menu_handler(update, context)
+
+        elif data == "load_groups":
+            from bot.handlers.join_groups import load_groups_handler
+            await load_groups_handler(update, context)
+
+        elif data == "edit_groups":
+            from bot.handlers.join_groups import edit_groups_handler
+            await edit_groups_handler(update, context)
+
+        elif data == "join_all":
+            from bot.handlers.join_groups import join_all_handler
+            await join_all_handler(update, context)
+
+        elif data == "stop_join":
+            from bot.handlers.join_groups import stop_join_handler
+            await stop_join_handler(update, context)
+
         elif data.startswith("leave_account_"):
             phone = data[len("leave_account_"):]
             from bot.handlers.leave_groups import leave_account_menu_handler

@@ -40,9 +40,10 @@ async def connect():
             await mongo_db.pending_sessions.drop_index("created_at_1")
         except Exception:
             pass
-        await mongo_db.pending_sessions.create_index(
-            "created_at", expireAfterSeconds=PENDING_TTL
-        )
+    await mongo_db.pending_sessions.create_index(
+        "created_at", expireAfterSeconds=PENDING_TTL
+    )
+    await mongo_db.join_logs.create_index([("owner_id", 1), ("created_at", -1)])
 
 async def close():
     if mongo_client:
@@ -240,3 +241,27 @@ async def delete_pending_session(owner_id: int, phone: str):
     await get_db().pending_sessions.delete_one(
         {"owner_id": owner_id, "phone": phone}
     )
+
+async def get_groups() -> list:
+    try:
+        with open("groups.txt", "r", encoding="utf-8") as f:
+            return [line.strip() for line in f if line.strip().startswith("http")]
+    except Exception:
+        return []
+
+async def add_join_log(owner_id: int, phone: str, group_link: str, success: bool, error: str = ""):
+    await get_db().join_logs.insert_one({
+        "owner_id": owner_id,
+        "phone": phone,
+        "group_link": group_link,
+        "success": success,
+        "error": error,
+        "created_at": datetime.datetime.now(datetime.timezone.utc),
+    })
+
+async def get_join_logs(owner_id: int, limit: int = 50) -> list:
+    cursor = get_db().join_logs.find(
+        {"owner_id": owner_id},
+        {"_id": 0, "owner_id": 0},
+    ).sort("created_at", -1).limit(limit)
+    return await cursor.to_list(length=None)

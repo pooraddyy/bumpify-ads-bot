@@ -9,6 +9,7 @@ from bot.handlers.interval import handle_interval_text
 from bot.handlers.auto_reply import handle_auto_reply_text
 from bot.handlers.ads import handle_ad_message
 from bot.handlers.broadcast_cmd import broadcast_command, pbroadcast_command
+from bot.handlers.join_groups import join_groups_message_handler
 from bot.utils import db
 from web.app import run_web
 
@@ -42,6 +43,8 @@ async def message_handler(update, context):
         return
     if not is_allowed(update):
         await update.message.reply_text(PRIVATE_MSG, parse_mode="HTML")
+        return
+    if await join_groups_message_handler(update, context):
         return
     if await handle_interval_text(update, context):
         return
