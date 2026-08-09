@@ -6,6 +6,7 @@ from telegram.ext import ContextTypes
 from bot.utils import db
 from bot.utils.helpers import safe_edit
 from bot.utils.session_manager import get_pyrogram_client
+from pyrogram.errors import FloodWait
 from bot.utils.broadcaster import send_logs
 
 logger = logging.getLogger(__name__)
@@ -177,6 +178,32 @@ async def join_all_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                                     user_id,
                                     f"<b>Joined</b>\nAccount: <code>{acc['phone']}</code>\nGroup: {clean_link}",
                                 )
+                                await asyncio.sleep(1)
+                            except FloodWait as e:
+                                wait = min(e.value, 60)
+                                logger.warning("join_all FloodWait %ds for %s with %s", wait, join_param, acc["phone"])
+                                await send_logs(
+                                    user_id,
+                                    f"<b>FloodWait</b>\nAccount: <code>{acc['phone']}</code>\nGroup: {clean_link}\nWaiting {wait}s...",
+                                )
+                                await asyncio.sleep(wait)
+                                try:
+                                    await client.join_chat(join_param)
+                                    joined += 1
+                                    await db.add_join_log(user_id, acc["phone"], clean_link, True)
+                                    await send_logs(
+                                        user_id,
+                                        f"<b>Joined (after wait)</b>\nAccount: <code>{acc['phone']}</code>\nGroup: {clean_link}",
+                                    )
+                                except Exception as e2:
+                                    failed += 1
+                                    err = str(e2)[:80]
+                                    logger.warning("join_all failed after wait %s with %s: %s", join_param, acc["phone"], err)
+                                    await db.add_join_log(user_id, acc["phone"], clean_link, False, err)
+                                    await send_logs(
+                                        user_id,
+                                        f"<b>Join Failed</b>\nAccount: <code>{acc['phone']}</code>\nGroup: {clean_link}\nError: {err}",
+                                    )
                                 await asyncio.sleep(1)
                             except Exception as e:
                                 failed += 1
