@@ -46,8 +46,8 @@ async def build_dashboard_content(user_id: int) -> tuple[str, InlineKeyboardMark
          InlineKeyboardButton("Analytics", callback_data="analytics", api_kwargs={"style": "primary"})],
         [InlineKeyboardButton("Start Ads", callback_data="start_ads", api_kwargs={"style": "primary"}),
          InlineKeyboardButton("Stop Ads", callback_data="stop_ads", api_kwargs={"style": "primary"})],
-        [InlineKeyboardButton("Auto Reply", callback_data="auto_reply", api_kwargs={"style": "primary"})],
-        [InlineKeyboardButton("Leave Groups", callback_data="leave_groups", api_kwargs={"style": "primary"})],
+        [InlineKeyboardButton("Auto Reply", callback_data="auto_reply", api_kwargs={"style": "primary"}),
+         InlineKeyboardButton("Leave Groups", callback_data="leave_groups", api_kwargs={"style": "primary"})],
         [InlineKeyboardButton("Home", callback_data="home", api_kwargs={"style": "danger"})],
     ])
     return text, keyboard
