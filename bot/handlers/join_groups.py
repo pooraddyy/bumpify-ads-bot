@@ -38,6 +38,16 @@ def extract_group_link(text: str) -> str:
         return f"https://t.me/{text}"
     return ""
 
+def get_join_param(link: str) -> str:
+    link = link.strip()
+    if link.startswith("https://t.me/"):
+        return link[len("https://t.me/"):]
+    if link.startswith("http://t.me/"):
+        return link[len("http://t.me/"):]
+    if link.startswith("t.me/"):
+        return link[len("t.me/"):]
+    return link
+
 async def join_groups_menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     user_id = update.effective_user.id
@@ -105,6 +115,7 @@ async def edit_groups_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
 async def join_all_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     user_id = update.effective_user.id
+    logger.info("join_all requested by %d", user_id)
     accounts = await db.get_accounts(user_id)
 
     if not accounts:
@@ -139,12 +150,15 @@ async def join_all_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     async def run():
         try:
+            logger.info("join_all started user=%d accounts=%d groups=%d", user_id, len(accounts), len(groups))
             for acc in accounts:
                 if join_stop_flags.get(user_id, False):
                     break
                 try:
+                    logger.info("join_all getting client for %s", acc["phone"])
                     client = await get_pyrogram_client(acc["session"])
                     async with client:
+                        logger.info("join_all client started for %s", acc["phone"])
                         joined = 0
                         failed = 0
                         for link in groups:
@@ -153,8 +167,10 @@ async def join_all_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                             clean_link = extract_group_link(link)
                             if not clean_link:
                                 continue
+                            join_param = get_join_param(clean_link)
                             try:
-                                await client.join_chat(clean_link)
+                                logger.info("join_all trying %s with %s", join_param, acc["phone"])
+                                await client.join_chat(join_param)
                                 joined += 1
                                 await db.add_join_log(user_id, acc["phone"], clean_link, True)
                                 await send_logs(
@@ -165,6 +181,7 @@ async def join_all_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                             except Exception as e:
                                 failed += 1
                                 err = str(e)[:80]
+                                logger.warning("join_all failed %s with %s: %s", join_param, acc["phone"], err)
                                 await db.add_join_log(user_id, acc["phone"], clean_link, False, err)
                                 await send_logs(
                                     user_id,
@@ -179,11 +196,12 @@ async def join_all_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                             f"Failed: <b>{failed}</b>",
                         )
                 except Exception as e:
+                    logger.error("join_all account error [%s]: %s", acc["phone"], e, exc_info=True)
                     await send_logs(user_id, f"<b>Join Error</b>\nAccount: <code>{acc['phone']}</code>\nError: {str(e)[:100]}")
         except asyncio.CancelledError:
             pass
         except Exception as e:
-            logger.error("join_all error [%s]: %s", user_id, e)
+            logger.error("join_all error [%s]: %s", user_id, e, exc_info=True)
         finally:
             join_tasks.pop(user_id, None)
             join_stop_flags.pop(user_id, None)
