@@ -175,6 +175,23 @@ journalctl -u bumpify -f        # live logs
 cd /root/bumpify-ads-bot && git pull && systemctl restart bumpify
 ```
 
+### One-Click Deploy with Cloudflare Tunnel
+
+Run the included `deploy.sh` script for instant VPS deployment with a public HTTPS webhook URL:
+
+```bash
+bash deploy.sh
+```
+
+This will:
+- Install `cloudflared` and Python venv dependencies
+- Start a Cloudflare Quick Tunnel on port 3000
+- Auto-detect the public tunnel URL and update `.env`
+- Start the bot and register the webhook
+- Print the tunnel URL and bot PIDs
+
+**Requirements:** `python3-venv`, `python3-pip`, `wget`, port 3000 open
+
 ---
 
 ## HTTPS + Nginx
