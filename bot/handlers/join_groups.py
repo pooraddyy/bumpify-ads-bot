@@ -13,6 +13,13 @@ logger = logging.getLogger(__name__)
 
 join_tasks: dict[int, asyncio.Task] = {}
 join_stop_flags: dict[int, bool] = {}
+join_semaphore: asyncio.Semaphore | None = None
+
+def get_join_semaphore() -> asyncio.Semaphore:
+    global join_semaphore
+    if join_semaphore is None:
+        join_semaphore = asyncio.Semaphore(5)
+    return join_semaphore
 
 def is_join_running(owner_id: int) -> bool:
     task = join_tasks.get(owner_id)
@@ -156,72 +163,73 @@ async def join_all_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 if join_stop_flags.get(user_id, False):
                     break
                 try:
-                    logger.info("join_all getting client for %s", acc["phone"])
-                    client = await get_pyrogram_client(acc["session"])
-                    async with client:
-                        logger.info("join_all client started for %s", acc["phone"])
-                        joined = 0
-                        failed = 0
-                        for link in groups:
-                            if join_stop_flags.get(user_id, False):
-                                break
-                            clean_link = extract_group_link(link)
-                            if not clean_link:
-                                continue
-                            join_param = get_join_param(clean_link)
-                            try:
-                                logger.info("join_all trying %s with %s", join_param, acc["phone"])
-                                await client.join_chat(join_param)
-                                joined += 1
-                                await db.add_join_log(user_id, acc["phone"], clean_link, True)
-                                await send_logs(
-                                    user_id,
-                                    f"<b>Joined</b>\nAccount: <code>{acc['phone']}</code>\nGroup: {clean_link}",
-                                )
-                                await asyncio.sleep(1)
-                            except FloodWait as e:
-                                wait = min(e.value, 60)
-                                logger.warning("join_all FloodWait %ds for %s with %s", wait, join_param, acc["phone"])
-                                await send_logs(
-                                    user_id,
-                                    f"<b>FloodWait</b>\nAccount: <code>{acc['phone']}</code>\nGroup: {clean_link}\nWaiting {wait}s...",
-                                )
-                                await asyncio.sleep(wait)
+                    async with get_join_semaphore():
+                        logger.info("join_all getting client for %s", acc["phone"])
+                        client = await get_pyrogram_client(acc["session"])
+                        async with client:
+                            logger.info("join_all client started for %s", acc["phone"])
+                            joined = 0
+                            failed = 0
+                            for link in groups:
+                                if join_stop_flags.get(user_id, False):
+                                    break
+                                clean_link = extract_group_link(link)
+                                if not clean_link:
+                                    continue
+                                join_param = get_join_param(clean_link)
                                 try:
+                                    logger.info("join_all trying %s with %s", join_param, acc["phone"])
                                     await client.join_chat(join_param)
                                     joined += 1
                                     await db.add_join_log(user_id, acc["phone"], clean_link, True)
                                     await send_logs(
                                         user_id,
-                                        f"<b>Joined (after wait)</b>\nAccount: <code>{acc['phone']}</code>\nGroup: {clean_link}",
+                                        f"<b>Joined</b>\nAccount: <code>{acc['phone']}</code>\nGroup: {clean_link}",
                                     )
-                                except Exception as e2:
+                                    await asyncio.sleep(1)
+                                except FloodWait as e:
+                                    wait = int(e.value)
+                                    logger.warning("join_all FloodWait %ds for %s with %s", wait, join_param, acc["phone"])
+                                    await send_logs(
+                                        user_id,
+                                        f"<b>FloodWait</b>\nAccount: <code>{acc['phone']}</code>\nGroup: {clean_link}\nWaiting {wait}s...",
+                                    )
+                                    await asyncio.sleep(wait)
+                                    try:
+                                        await client.join_chat(join_param)
+                                        joined += 1
+                                        await db.add_join_log(user_id, acc["phone"], clean_link, True)
+                                        await send_logs(
+                                            user_id,
+                                            f"<b>Joined (after wait)</b>\nAccount: <code>{acc['phone']}</code>\nGroup: {clean_link}",
+                                        )
+                                    except Exception as e2:
+                                        failed += 1
+                                        err = str(e2)[:80]
+                                        logger.warning("join_all failed after wait %s with %s: %s", join_param, acc["phone"], err)
+                                        await db.add_join_log(user_id, acc["phone"], clean_link, False, err)
+                                        await send_logs(
+                                            user_id,
+                                            f"<b>Join Failed</b>\nAccount: <code>{acc['phone']}</code>\nGroup: {clean_link}\nError: {err}",
+                                        )
+                                    await asyncio.sleep(1)
+                                except Exception as e:
                                     failed += 1
-                                    err = str(e2)[:80]
-                                    logger.warning("join_all failed after wait %s with %s: %s", join_param, acc["phone"], err)
+                                    err = str(e)[:80]
+                                    logger.warning("join_all failed %s with %s: %s", join_param, acc["phone"], err)
                                     await db.add_join_log(user_id, acc["phone"], clean_link, False, err)
                                     await send_logs(
                                         user_id,
                                         f"<b>Join Failed</b>\nAccount: <code>{acc['phone']}</code>\nGroup: {clean_link}\nError: {err}",
                                     )
-                                await asyncio.sleep(1)
-                            except Exception as e:
-                                failed += 1
-                                err = str(e)[:80]
-                                logger.warning("join_all failed %s with %s: %s", join_param, acc["phone"], err)
-                                await db.add_join_log(user_id, acc["phone"], clean_link, False, err)
-                                await send_logs(
-                                    user_id,
-                                    f"<b>Join Failed</b>\nAccount: <code>{acc['phone']}</code>\nGroup: {clean_link}\nError: {err}",
-                                )
-                                await asyncio.sleep(1)
-                        await send_logs(
-                            user_id,
-                            f"<b>Join Groups — {acc['name']}</b>\n"
-                            f"<code>{acc['phone']}</code>\n\n"
-                            f"Joined: <b>{joined}</b>\n"
-                            f"Failed: <b>{failed}</b>",
-                        )
+                                    await asyncio.sleep(1)
+                            await send_logs(
+                                user_id,
+                                f"<b>Join Groups — {acc['name']}</b>\n"
+                                f"<code>{acc['phone']}</code>\n\n"
+                                f"Joined: <b>{joined}</b>\n"
+                                f"Failed: <b>{failed}</b>",
+                            )
                 except Exception as e:
                     logger.error("join_all account error [%s]: %s", acc["phone"], e, exc_info=True)
                     await send_logs(user_id, f"<b>Join Error</b>\nAccount: <code>{acc['phone']}</code>\nError: {str(e)[:100]}")
