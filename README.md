@@ -233,41 +233,7 @@ Keep `ENCRYPTION_KEY` and `MONGODB_URL` secret. Never commit `.env`.
 
 ---
 
-## Architecture
 
-```
-main.py                    — entry point, bot + web startup
-bot/
-  config.py                — env vars
-  handlers/
-    start.py               — /start command
-    dashboard.py           — dashboard UI
-    callbacks.py           — all button routing
-    ads.py                 — set ad, start/stop ads
-    accounts.py            — account management
-    auto_reply.py          — auto reply settings
-    interval.py            — broadcast interval
-    leave_groups.py        — leave groups UI
-    broadcast_cmd.py       — /broadcast, /pbroadcast owner commands
-    faq.py                 — FAQ and how-to
-  utils/
-    broadcaster.py         — core broadcast engine (chunked, parallel)
-    leave_groups.py        — leave groups engine
-    auto_reply_manager.py  — auto reply Pyrogram clients
-    session_manager.py     — Pyrogram session login / decrypt
-    db.py                  — MongoDB operations
-    encryption.py          — AES-256 session encryption
-    helpers.py             — safe_edit and shared utilities
-web/
-  app.py                   — aiohttp REST API + static serving
-  templates/index.html     — WebApp panel
-logger_bot/
-  handlers.py              — logger bot handlers
-```
-
----
-
-## Contributing
 
 ```
 Fork  ->  Clone  ->  Branch  ->  Changes  ->  Pull Request
