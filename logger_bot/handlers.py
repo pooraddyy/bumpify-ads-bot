@@ -22,15 +22,13 @@ async def logger_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     bot_ref = f" from {main_username}" if main_username else ""
 
     await update.message.reply_text(
-        f"<b>📊 Bumpify Logger Bot</b>\n\n"
-        f"You're now subscribed to receive real-time broadcast reports{bot_ref}.\n\n"
-        "<b>After each broadcast cycle you will receive:</b>\n"
-        "  • ✅ Groups successfully reached\n"
-        "  • ❌ Failed groups with error reasons\n"
-        "  • 📋 Group names, @usernames, links, and IDs\n"
-        "  • 📈 Per-account success / failure breakdown\n"
-        "  • ⏱ Next cycle countdown timer\n\n"
-        f"<blockquote>Start broadcasting{bot_ref} and your first report will appear here automatically.</blockquote>",
+        f"<b>📊 Logger Bot</b>\n\n"
+        f"Subscribed to broadcast reports{bot_ref}.\n\n"
+        "<b>You will receive:</b>\n"
+        "• Success / failure per group\n"
+        "• Per-account breakdown\n"
+        "• Next cycle countdown\n\n"
+        f"Start broadcasting{bot_ref} to see reports here.",
         parse_mode="HTML",
     )
 
