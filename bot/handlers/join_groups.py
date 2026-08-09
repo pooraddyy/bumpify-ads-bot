@@ -131,7 +131,11 @@ async def join_all_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await safe_edit(query, "<b>No groups loaded. Load groups first.</b>", reply_markup=keyboard, parse_mode="HTML", context=context)
         return
 
-    await safe_edit(query, "<b>Joining groups...</b> Started.", parse_mode="HTML", context=context)
+    keyboard = InlineKeyboardMarkup([
+        [InlineKeyboardButton("Stop", callback_data="stop_join", api_kwargs={"style": "danger"})],
+        [InlineKeyboardButton("Back", callback_data="join_groups", api_kwargs={"style": "danger"})],
+    ])
+    await safe_edit(query, "<b>Joining groups...</b> Started.", reply_markup=keyboard, parse_mode="HTML", context=context)
 
     async def run():
         try:
@@ -153,11 +157,19 @@ async def join_all_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                                 await client.join_chat(clean_link)
                                 joined += 1
                                 await db.add_join_log(user_id, acc["phone"], clean_link, True)
+                                await send_logs(
+                                    user_id,
+                                    f"<b>Joined</b>\nAccount: <code>{acc['phone']}</code>\nGroup: {clean_link}",
+                                )
                                 await asyncio.sleep(1)
                             except Exception as e:
                                 failed += 1
                                 err = str(e)[:80]
                                 await db.add_join_log(user_id, acc["phone"], clean_link, False, err)
+                                await send_logs(
+                                    user_id,
+                                    f"<b>Join Failed</b>\nAccount: <code>{acc['phone']}</code>\nGroup: {clean_link}\nError: {err}",
+                                )
                                 await asyncio.sleep(1)
                         await send_logs(
                             user_id,
